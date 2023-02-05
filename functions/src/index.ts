@@ -1,10 +1,33 @@
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
-import * as cors from 'cors';
-//import * as cryptogrpahy from 'crypto'
+import * as functions from "firebase-functions";
+import * as admin from "firebase-admin";
+import * as cors from "cors";
+
+// // Start writing functions
+// // https://firebase.google.com/docs/functions/typescript
+//
+// export const helloWorld = functions.https.onRequest((request, response) => {
+//   functions.logger.info("Hello logs!", {structuredData: true});
+//   response.send("Hello from Firebase!");
+// });
+
+
+// import * as cryptogrpahy from 'crypto'
+
+// setup es lint rules
+/* eslint-disable */
+/* eslint brace-style: ["error", "allman", { "allowSingleLine": true }]*/
+/* eslint brace-style: ["error", "allman", { "allowSingleLine": true }]*/
+
 
 admin.initializeApp();
 const corsHandler = cors({origin: true});
+
+// tool for tracking version changes on the server
+function ApiVersionNumber():string
+{
+    // major versions, minor versions, patch no
+    return '00.01.00';
+}
 
 function UniformBitRandLong():number
 {
@@ -41,6 +64,34 @@ function SetupNewUdidMapping(UdidKey : admin.database.Reference, lUserID :number
     return Promise.all(PromiseArray).then();
 }
 
+export const GetApiVersionNumber = functions.https.onRequest((request, response) =>
+{
+    return corsHandler(request, response,() => 
+    {
+        console.log(request.body);
+
+        response.status(200).json({                  
+            m_strApiNumber: ApiVersionNumber()
+        });
+    });
+});
+
+export const DumpAllDataInDatabase = functions.https.onRequest((request, response) =>
+{
+    return corsHandler(request, response,() => 
+    {
+        console.log(request.body);
+
+        //get all gateways
+        const adrAllDatabaseData = admin.database().ref('');
+
+        //const iDataCount:number = adrAllDatabaseData.
+
+        response.status(200).json(adrAllDatabaseData.toJSON());
+    });
+});
+
+
 export const GetPeerIDForUDID = functions.https.onRequest((request, response) =>
 { 
     return corsHandler(request, response,() => 
@@ -70,7 +121,7 @@ export const GetPeerIDForUDID = functions.https.onRequest((request, response) =>
        {
            console.log(DataSnapshot);
 
-           //on unique id found 
+           //on unique id found
            if(DataSnapshot.val() !== null)
            {           
                return DataSnapshot.val();
@@ -118,7 +169,7 @@ export const GetPeerIDForUDID = functions.https.onRequest((request, response) =>
 });
 
  //sends a message from one peer to another
-export const SendMessageToPeer = functions.https.onRequest((request, response) =>
+ export const SendMessageToPeer = functions.https.onRequest((request, response) =>
 {
     return corsHandler(request, response,() => 
     {
@@ -140,7 +191,7 @@ export const SendMessageToPeer = functions.https.onRequest((request, response) =
             bIsValidRequest = false;
         }
 
-        if(iType === NaN)
+        if(Number.isNaN(iType))
         {
             bIsValidRequest = false;
         }
@@ -359,20 +410,36 @@ export const GetMessagesForPeer = functions.https.onRequest((request, response) 
     });
 });
 
-  
-interface GatewayState
+// what is the state of the conenction, how many spots free are there
+class GatewayState
 {
-    m_iRemainingSlots: number  
+    m_iRemainingSlots: number = 0
 }
 
-interface GatewayDetails
-{
-    m_dtmLastActiveTime:number
-    m_lUserID: number
-    m_lUserKey: number
-    m_staGameState: GatewayState 
+// what is the state of the game
+class GameState
+{   
+    // raw data for game state
+    m_strGameState: string = ''
 }
 
+class GatewayDetails
+{
+    m_dtmLastActiveTime:number = 0 // the last time this gate was updated
+    m_lUserID: number = 0// the id of the user managing this gate
+    m_lUserKey: number = 0// private key used to update this gate, the gate should not be changed without this private key
+    m_gwsGateState: GatewayState = new GatewayState() 
+    m_lGameFlags: number = 0
+    m_lGameID: number = 0
+}
+
+class GateReturnData
+{
+    m_lUserID: number = 0 // the id of the user managing this gate
+    m_gwsGateState: GatewayState = new GatewayState()
+    m_lGameFlags: number = 0 //details about the game state
+    m_lGameState: GameState = new GameState() //game specific deets
+}
 
 //sets a gateway 
 export const SetGateway = functions.https.onRequest((request, response) =>
@@ -385,24 +452,34 @@ export const SetGateway = functions.https.onRequest((request, response) =>
         const dtmOldestValidGateTime:number = Number(Date.now());
         const lUserID:number = Number(request.body.m_lUserID) || 0;
         const lUserKey:number = Number(request.body.m_lUserKey) || 0;
-        const staGameState: GatewayState = request.body.m_staGameState;
+        const staGateState: GatewayState = request.body.m_staGateState;
+
+        //java script converts numbers to 32 bit when doing binary actions on them so even through number is 64 they must be treated as 32
+        const lGameType:number = (Number(request.body.m_lGameType) || Number(0)) << Number(32 - 8); // move the game number to the top 8 bits 
+        const lFlags:number = ((Number(request.body.m_lFlags) || Number(0)) << Number(8)) >> Number(8);  // remove the top 8 bits from the flag value
+
+        const gstGameState:GameState = request.body.m_gstGameState;
+
+        console.log('request data fetched');
 
         const gdtGateDetails: GatewayDetails =
         {
             m_dtmLastActiveTime: dtmOldestValidGateTime,
             m_lUserID: lUserID,
             m_lUserKey: lUserKey,
-            m_staGameState: staGameState
+            m_gwsGateState: staGateState,
+            m_lGameFlags : lGameType | lFlags,
+            m_lGameID: UniformBitRandLong()
         }
 
         //validate inputs 
-        if(lUserID === 0 || lUserKey === 0 || staGameState === null || staGameState === undefined || staGameState.m_iRemainingSlots === undefined)
+        if(lUserID === 0 || lUserKey === 0 || staGateState === null || staGateState === undefined || staGateState.m_iRemainingSlots === undefined)
         {
-            console.log('Bad Request data in request UserID:' + lUserID + ' AccessKey:' + lUserKey + ' Game State' + staGameState);
+            console.log('Bad Request data in request UserID:' + lUserID + ' AccessKey:' + lUserKey + ' Game State' + staGateState);
 
             response.status(400).json(
                 {                  
-                    message: 'Bad Request data in request UserID:' + lUserID + ' AccessKey:' + lUserKey + ' Game State' + staGameState
+                    message: 'Bad Request data in request UserID:' + lUserID + ' AccessKey:' + lUserKey + ' Game State' + staGateState
                 }
             );
 
@@ -412,17 +489,24 @@ export const SetGateway = functions.https.onRequest((request, response) =>
         console.log('Not Bad Input');
 
         //check if already exists 
-        const adrGatewayAccessKeyAddress = admin.database().ref('Gateways').child(lUserID.toString()).child('m_lUserKey');
+        const adrGatewayAccessKeyAddress = admin.database().ref('Gateways').child(lUserID.toString())
 
         //get gateway access key
         adrGatewayAccessKeyAddress.once('value').then((result) => 
         {
-            console.log('Result from get gateway for user' + result.val());
+            console.log('Result from get gateway for user: ' + result.val());
 
-            if(result.val() === null || result.val() === lUserKey)
+            if(result.val() === null || result.val().m_lUserKey === lUserKey)
             {
                 const GatewayAddress = admin.database().ref('Gateways').child(lUserID.toString());
 
+                if(result.val() != null)
+                {
+                    console.log('updating game id key');
+                    console.log('m_lGameID == ' + result.val().m_lGameID);
+                    //get existing gateway id
+                    gdtGateDetails.m_lGameID = result.val().m_lGameID;
+                }
                 //let GatewayConnectPromise = []
 
                 //GatewayConnectPromise.push(GatewayAddress.child('LastActivity').set(admin.database.ServerValue.TIMESTAMP))
@@ -434,13 +518,24 @@ export const SetGateway = functions.https.onRequest((request, response) =>
                 //    return true;
                 //});
 
+                console.log('setting gateway to' + gdtGateDetails);
+
                 return GatewayAddress.set(gdtGateDetails).then(()=>
                 {
+                    //check if there is a state that needs updating as well
+                    if(gstGameState != undefined && gstGameState.m_strGameState != undefined)
+                    {
+                        const GameAddress = admin.database().ref('GameStates').child(lUserID.toString());
+
+                        GameAddress.set(gstGameState);
+                    }
+                    
                     return true;
                 })
             }
             else
             {
+                console.log('peer passed in wrong key, gate update blocked' + result.val());
                 return false;
             }
         }).then((returnValue) =>
@@ -477,11 +572,17 @@ export const SetGateway = functions.https.onRequest((request, response) =>
     });
 });
 
-//sets a gateway 
+//gets a single gateway 
 export const GetGateway = functions.https.onRequest((request, response) =>
 {
     return corsHandler(request, response,() => 
     {
+        console.log('Get Gateway Start');
+
+        //the requirements for the game 
+        // const lGameType:bigint = BigInt(request.body.m_lGameType) << BigInt(128 - 8); // move the game number to the top 8 bits 
+        // const lFlags:bigint = (BigInt(request.body.m_lFlags) << BigInt(8)) >> BigInt(8);  // remove the top 8 bits from the flag value
+
         //in the future get the peer details and find a game with 
         //matching world location / other deets 
 
@@ -490,7 +591,12 @@ export const GetGateway = functions.https.onRequest((request, response) =>
         
         const gdtActiveGateways = new Array<GatewayDetails>()
         const strDeadGateways = new Array<string>()
-        
+
+         //java script converts numbers to 32 bit when doing binary actions on them so even through number is 64 they must be treated as 32
+         const lGameType:number = (Number(request.body.m_lGameType) || Number(0)) << Number(32 - 8); // move the game number to the top 8 bits 
+         const lFlags:number = ((Number(request.body.m_lFlags) || Number(0)) << Number(8)) >> Number(8);  // remove the top 8 bits from the flag value
+         const lCombinedFlags:number = lFlags | lGameType;
+
         //get gateway details
         adrGateways.once('value').then((result) =>
         {        
@@ -507,7 +613,7 @@ export const GetGateway = functions.https.onRequest((request, response) =>
                     {
                         strDeadGateways.push(String(gateway.key));
                     }
-                    else if(Number(gateway.val().m_staGameState.m_iRemainingSlots) > 0)
+                    else if(Number(gateway.val().m_gwsGateState.m_iRemainingSlots) > 0 && ((gateway.val().m_lGameFlags & lCombinedFlags) === lCombinedFlags))
                     {
                         gdtActiveGateways.push(gateway.val() as GatewayDetails)
                     }
@@ -525,6 +631,7 @@ export const GetGateway = functions.https.onRequest((request, response) =>
             return Promise.all(prsRemoveGatePromises).then();
         }).then(() =>
         {
+            console.log('Check if a gate was found');
             //if there are no gateways return a 404 and let the user create a new one
             if(gdtActiveGateways.length === 0)
             {
@@ -538,22 +645,169 @@ export const GetGateway = functions.https.onRequest((request, response) =>
                 return;
             };
 
-            let BestGateway = gdtActiveGateways[0]
+            console.log('get active gate with least players');
+
+            var gwdBestGateway: GatewayDetails = gdtActiveGateways[0];
 
             for(let i = 1 ; i < gdtActiveGateways.length; i++)
             {
-                if(BestGateway.m_staGameState.m_iRemainingSlots < gdtActiveGateways[i].m_staGameState.m_iRemainingSlots)
+                // get the gate with the most empty slots
+                if(gwdBestGateway.m_gwsGateState.m_iRemainingSlots < gdtActiveGateways[i].m_gwsGateState.m_iRemainingSlots)
                 {
-                    BestGateway = gdtActiveGateways[i];
+                    gwdBestGateway = gdtActiveGateways[i];
                 }
 
             }
 
-            response.status(200).json(
-                {                  
-                    m_lGateOwnerUserID: BestGateway.m_lUserID
+            console.log('get game state for best player');
+
+            var grdGate: GateReturnData = new GateReturnData();
+
+            grdGate.m_lUserID = gwdBestGateway.m_lUserID; // the id of the user managing this gate
+            grdGate.m_gwsGateState = gwdBestGateway.m_gwsGateState;
+            grdGate.m_lGameFlags = gwdBestGateway.m_lGameFlags; //details about the game state
+            //grdGate.m_lGameState: new GameState() //game specific deets
+
+            const adrGateways = admin.database().ref('GameStates').child(gwdBestGateway.m_lGameID.toString());
+
+            console.log('try get data from gateway');
+            //get the gate details
+            adrGateways.once('value').then((result) => 
+            {
+                console.log('Result from get game details :' + result.val());
+    
+                if(result.val() != null || result.val() != undefined)
+                {
+                    console.log('updating game state');
+                    grdGate.m_lGameState = result.val();
                 }
-            );
+            })
+
+            console.log('sending data :' + grdGate);
+            response.status(200).json( 
+            {
+                m_grdGateReturnData: grdGate
+            });
+
+        }).catch((error) =>
+        {
+            console.log('Error:' + error)
+            //send reply message 
+            response.status(500).json(
+            {                  
+                Error: error
+            });
+        })
+    });
+});
+
+//gets a single gateway 
+export const GetGatewayList = functions.https.onRequest((request, response) =>
+{
+    return corsHandler(request, response,() => 
+    {
+        console.log('Get Gateway list Start');
+
+        //the requirements for the game 
+        // const lGameType:bigint = BigInt(request.body.m_lGameType) << BigInt(128 - 8); // move the game number to the top 8 bits 
+        // const lFlags:bigint = (BigInt(request.body.m_lFlags) << BigInt(8)) >> BigInt(8);  // remove the top 8 bits from the flag value
+
+        //in the future get the peer details and find a game with 
+        //matching world location / other deets 
+
+        //get all gateways
+        const adrGateways = admin.database().ref('Gateways');
+        
+        const gdtActiveGateways = new Array<GatewayDetails>()
+        const strDeadGateways = new Array<string>()
+
+         //java script converts numbers to 32 bit when doing binary actions on them so even through number is 64 they must be treated as 32
+         const lGameType:number = (Number(request.body.m_lGameType) || Number(0)) << Number(32 - 8); // move the game number to the top 8 bits 
+         const lFlags:number = ((Number(request.body.m_lFlags) || Number(0)) << Number(8)) >> Number(8);  // remove the top 8 bits from the flag value
+         const lCombinedFlags:number = lFlags | lGameType;
+
+        //get gateway details
+        adrGateways.once('value').then((result) =>
+        {        
+            if(result.val() !== null)
+            {
+                //the oldest time for an active gateway 
+                const dtmOldestValidGateTime:number = Date.now() - (1000 * 20);
+
+                result.forEach((gateway) =>
+                {
+                    console.log('GetGatewayValue: last active time:' + gateway.val().m_dtmLastActiveTime + ' oldest Valid Time:' + dtmOldestValidGateTime)
+
+                    if(Number(gateway.val().m_dtmLastActiveTime) < dtmOldestValidGateTime)
+                    {
+                        strDeadGateways.push(String(gateway.key));
+                    }
+                    else if(Number(gateway.val().m_gwsGateState.m_iRemainingSlots) > 0 && ((gateway.val().m_lGameFlags & lCombinedFlags) === lCombinedFlags))
+                    {
+                        gdtActiveGateways.push(gateway.val() as GatewayDetails)
+                    }
+                })
+            }
+        }).then(() =>
+        {
+            const prsRemoveGatePromises = []
+
+            for(let strGateway of strDeadGateways)
+            {
+                prsRemoveGatePromises.push(adrGateways.child(strGateway).remove())
+            }
+
+            return Promise.all(prsRemoveGatePromises).then();
+        }).then(() =>
+        {
+            console.log('Check if a gate was found');
+            //if there are no gateways return a 404 and let the user create a new one
+            if(gdtActiveGateways.length === 0)
+            {
+                response.status(404).json(
+                    {                  
+                        message:'No active Gateways exist'
+                    }
+                );
+
+                return;
+            };
+
+            console.log('get game state for gates');
+
+            var grdGate: Array<GateReturnData> = new Array<GateReturnData>(gdtActiveGateways.length);
+            
+            for(var i = 0 ; i < gdtActiveGateways.length; i++)
+            {
+                console.log('setting up gate data for index :' + i);
+                grdGate[i] = new GateReturnData();
+                grdGate[i].m_lUserID = gdtActiveGateways[i].m_lUserID; // the id of the user managing this gate
+                grdGate[i].m_gwsGateState = gdtActiveGateways[i].m_gwsGateState;
+                grdGate[i].m_lGameFlags = gdtActiveGateways[i].m_lGameFlags; //details about the game state
+                //grdGate.m_lGameState: new GameState() //game specific deets
+
+                const adrGateways = admin.database().ref('GameStates').child(gdtActiveGateways[i].m_lGameID.toString());
+
+                console.log('try get data from gateway');
+                //get the gate details
+                adrGateways.once('value').then((result) => 
+                {
+                    console.log('Result from get game details :' + result.val());
+    
+                    if(result.val() != null || result.val() != undefined)
+                    {
+                        console.log('updating game state');
+                        grdGate[i].m_lGameState = result.val();
+                    }
+                })
+            }
+
+            console.log('sending data :' + grdGate);
+            
+            response.status(200).json( 
+            {
+                m_arrGateReturnData: grdGate
+            });
 
         }).catch((error) =>
         {
