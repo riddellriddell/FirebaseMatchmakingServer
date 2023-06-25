@@ -435,7 +435,7 @@ class GatewayDetails
 
 class GateReturnData
 {
-    m_lUserID: number = 0 // the id of the user managing this gate
+    m_lGateOwnerUserID: number = 0 // the id of the user managing this gate
     m_gwsGateState: GatewayState = new GatewayState()
     m_lGameFlags: number = 0 //details about the game state
     m_lGameState: GameState = new GameState() //game specific deets
@@ -452,7 +452,7 @@ export const SetGateway = functions.https.onRequest((request, response) =>
         const dtmOldestValidGateTime:number = Number(Date.now());
         const lUserID:number = Number(request.body.m_lUserID) || 0;
         const lUserKey:number = Number(request.body.m_lUserKey) || 0;
-        const staGateState: GatewayState = request.body.m_staGateState;
+        const staGateState: GatewayState = request.body.m_gwsGateState;
 
         //java script converts numbers to 32 bit when doing binary actions on them so even through number is 64 they must be treated as 32
         const lGameType:number = (Number(request.body.m_lGameType) || Number(0)) << Number(32 - 8); // move the game number to the top 8 bits 
@@ -663,7 +663,7 @@ export const GetGateway = functions.https.onRequest((request, response) =>
 
             var grdGate: GateReturnData = new GateReturnData();
 
-            grdGate.m_lUserID = gwdBestGateway.m_lUserID; // the id of the user managing this gate
+            grdGate.m_lGateOwnerUserID = gwdBestGateway.m_lUserID; // the id of the user managing this gate
             grdGate.m_gwsGateState = gwdBestGateway.m_gwsGateState;
             grdGate.m_lGameFlags = gwdBestGateway.m_lGameFlags; //details about the game state
             //grdGate.m_lGameState: new GameState() //game specific deets
@@ -781,7 +781,7 @@ export const GetGatewayList = functions.https.onRequest((request, response) =>
             {
                 console.log('setting up gate data for index :' + i);
                 grdGate[i] = new GateReturnData();
-                grdGate[i].m_lUserID = gdtActiveGateways[i].m_lUserID; // the id of the user managing this gate
+                grdGate[i].m_lGateOwnerUserID = gdtActiveGateways[i].m_lUserID; // the id of the user managing this gate
                 grdGate[i].m_gwsGateState = gdtActiveGateways[i].m_gwsGateState;
                 grdGate[i].m_lGameFlags = gdtActiveGateways[i].m_lGameFlags; //details about the game state
                 //grdGate.m_lGameState: new GameState() //game specific deets
